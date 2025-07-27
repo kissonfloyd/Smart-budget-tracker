@@ -1,5 +1,4 @@
 name: Build Android APK/AAB
-
 on:
   push:
     branches: [ main, master ]
@@ -20,7 +19,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -29,6 +28,9 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
+        # NO 'cache:' LINE HERE
+        # NO 'cache-dependency-path:' LINE HERE
+
     - name: Setup Java JDK
       uses: actions/setup-java@v4
       with:
@@ -111,17 +113,17 @@ jobs:
         echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
         echo "| File Type | Status | Size | Location |" >> $GITHUB_STEP_SUMMARY
         echo "|-----------|--------|------|----------|" >> $GITHUB_STEP_SUMMARY
-        
+
         if [ -f "react-native/android/app/build/outputs/apk/release/app-release.apk" ]; then
           APK_SIZE=$(du -h react-native/android/app/build/outputs/apk/release/app-release.apk | cut -f1)
           echo "| APK | ✅ Built | $APK_SIZE | Download from Artifacts |" >> $GITHUB_STEP_SUMMARY
         fi
-        
+
         if [ -f "react-native/android/app/build/outputs/bundle/release/app-release.aab" ]; then
           AAB_SIZE=$(du -h react-native/android/app/build/outputs/bundle/release/app-release.aab | cut -f1)
           echo "| AAB | ✅ Built | $AAB_SIZE | Download from Artifacts |" >> $GITHUB_STEP_SUMMARY
         fi
-        
+
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
         echo "1. Download the AAB file from the Artifacts section above" >> $GITHUB_STEP_SUMMARY
