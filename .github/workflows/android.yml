@@ -1,29 +1,131 @@
-name: Android CI
+name: Build Android APK/AAB
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (apk or aab)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+        - apk
+        - aab  
+        - both
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
+    
     steps:
-    - uses: actions/checkout@v4
-    - name: set up JDK 11
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Setup Java JDK
       uses: actions/setup-java@v4
       with:
-        java-version: '11'
         distribution: 'temurin'
-        cache: gradle
-        cache-dependency-path: react-native/android/build.gradle
+        java-version: '17'
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-    - name: Build with Gradle
-      run: ./react-native/android/gradlew build
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Check project structure
+      run: |
+        echo "Project structure:"
+        ls -la
+        echo "React Native folder:"
+        ls -la react-native/
+        echo "Android folder:"
+        ls -la react-native/android/
+
+    - name: Install React Native CLI
+      run: npm install -g @react-native-community/cli
+
+    - name: Install dependencies
+      working-directory: react-native
+      run: npm install
+
+    - name: Create gradle wrapper if missing
       working-directory: react-native/android
+      run: |
+        if [ ! -f gradle/wrapper/gradle-wrapper.properties ]; then
+          echo "Creating gradle wrapper..."
+          gradle wrapper --gradle-version=8.0.1
+        fi
 
+    - name: Make gradlew executable
+      working-directory: react-native/android
+      run: chmod +x gradlew
+
+    - name: Generate Upload Keystore
+      working-directory: react-native/android/app
+      run: |
+        keytool -genkey -v -keystore smartbudget-upload-key.keystore -alias smartbudget-upload -keyalg RSA -keysize 2048 -validity 10000 -storepass smartbudget123 -keypass smartbudget123 -dname "CN=Smart Budget Tracker, OU=KissonFloyd, O=Smart Budget, L=Kathmandu, ST=Bagmati, C=NP"
+
+    - name: Build Release APK
+      if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      working-directory: react-native/android
+      run: ./gradlew assembleRelease
+
+    - name: Build Release AAB
+      if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      working-directory: react-native/android
+      run: ./gradlew bundleRelease
+
+    - name: Upload APK Artifact
+      if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: smart-budget-tracker-apk
+        path: react-native/android/app/build/outputs/apk/release/app-release.apk
+        retention-days: 30
+
+    - name: Upload AAB Artifact
+      if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: smart-budget-tracker-aab
+        path: react-native/android/app/build/outputs/bundle/release/app-release.aab
+        retention-days: 30
+
+    - name: Upload Build Metadata
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-metadata
+        path: |
+          react-native/android/app/build/outputs/apk/release/output-metadata.json
+          react-native/android/app/build/outputs/bundle/release/output-metadata.json
+        retention-days: 30
+
+    - name: Generate Build Summary
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| File Type | Status | Size | Location |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|------|----------|" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f "react-native/android/app/build/outputs/apk/release/app-release.apk" ]; then
+          APK_SIZE=$(du -h react-native/android/app/build/outputs/apk/release/app-release.apk | cut -f1)
+          echo "| APK | ✅ Built | $APK_SIZE | Download from Artifacts |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ -f "react-native/android/app/build/outputs/bundle/release/app-release.aab" ]; then
+          AAB_SIZE=$(du -h react-native/android/app/build/outputs/bundle/release/app-release.aab | cut -f1)
+          echo "| AAB | ✅ Built | $AAB_SIZE | Download from Artifacts |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Download the AAB file from the Artifacts section above" >> $GITHUB_STEP_SUMMARY
+        echo "2. Upload the AAB to Google Play Console" >> $GITHUB_STEP_SUMMARY
+        echo "3. Use the APK for testing on devices" >> $GITHUB_STEP_SUMMARY
