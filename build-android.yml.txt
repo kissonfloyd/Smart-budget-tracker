@@ -1,0 +1,115 @@
+name: Build Android APK/AAB
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (apk or aab)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+        - apk
+        - aab  
+        - both
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Setup Java JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install dependencies
+      run: |
+        cd react-native
+        npm ci
+
+    - name: Make gradlew executable
+      run: |
+        cd react-native/android
+        chmod +x gradlew
+
+    - name: Generate Upload Keystore
+      run: |
+        cd react-native/android/app
+        keytool -genkey -v -keystore smartbudget-upload-key.keystore -alias smartbudget-upload -keyalg RSA -keysize 2048 -validity 10000 -storepass smartbudget123 -keypass smartbudget123 -dname "CN=Smart Budget Tracker, OU=KissonFloyd, O=Smart Budget, L=Kathmandu, ST=Bagmati, C=NP"
+
+    - name: Build Release APK
+      if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      run: |
+        cd react-native/android
+        ./gradlew assembleRelease
+
+    - name: Build Release AAB
+      if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      run: |
+        cd react-native/android
+        ./gradlew bundleRelease
+
+    - name: Upload APK Artifact
+      if: ${{ github.event.inputs.build_type == 'apk' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: smart-budget-tracker-apk
+        path: react-native/android/app/build/outputs/apk/release/app-release.apk
+        retention-days: 30
+
+    - name: Upload AAB Artifact
+      if: ${{ github.event.inputs.build_type == 'aab' || github.event.inputs.build_type == 'both' || github.event.inputs.build_type == '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: smart-budget-tracker-aab
+        path: react-native/android/app/build/outputs/bundle/release/app-release.aab
+        retention-days: 30
+
+    - name: Upload Build Metadata
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-metadata
+        path: |
+          react-native/android/app/build/outputs/apk/release/output-metadata.json
+          react-native/android/app/build/outputs/bundle/release/output-metadata.json
+        retention-days: 30
+
+    - name: Generate Build Summary
+      run: |
+        echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| File Type | Status | Size | Location |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|------|----------|" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f "react-native/android/app/build/outputs/apk/release/app-release.apk" ]; then
+          APK_SIZE=$(du -h react-native/android/app/build/outputs/apk/release/app-release.apk | cut -f1)
+          echo "| APK | ✅ Built | $APK_SIZE | Download from Artifacts |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ -f "react-native/android/app/build/outputs/bundle/release/app-release.aab" ]; then
+          AAB_SIZE=$(du -h react-native/android/app/build/outputs/bundle/release/app-release.aab | cut -f1)
+          echo "| AAB | ✅ Built | $AAB_SIZE | Download from Artifacts |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Download the AAB file from the Artifacts section above" >> $GITHUB_STEP_SUMMARY
+        echo "2. Upload the AAB to Google Play Console" >> $GITHUB_STEP_SUMMARY
+        echo "3. Use the APK for testing on devices" >> $GITHUB_STEP_SUMMARY
